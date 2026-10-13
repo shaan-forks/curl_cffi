@@ -12,6 +12,7 @@ on:
       - release/*
       - chore/*
       - security/*
+      - ci/validate-environment-race-20261013-pr883
 
 permissions:
   contents: read
