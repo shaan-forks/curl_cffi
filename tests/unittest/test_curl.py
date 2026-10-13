@@ -6,7 +6,6 @@ import weakref
 from importlib import import_module
 from io import BytesIO
 from typing import cast
-from unittest.mock import patch
 
 import pytest
 
@@ -461,47 +460,54 @@ def test_resolve_curl_version_does_not_need_easy_handle(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_default_cacert_ssl_cert_file(tmp_path):
+@pytest.fixture
+def cacert_environ(monkeypatch):
+    # These lookup tests need a Python mapping, not native environment changes
+    # that could race with the test servers' background threads.
+    environ = os.environ.copy()
+    monkeypatch.setattr(os, "environ", environ)
+    return environ
+
+
+def test_default_cacert_ssl_cert_file(tmp_path, cacert_environ):
     ca_file = tmp_path / "ca.pem"
     ca_file.write_text("dummy")
-    with patch.dict(os.environ, {"SSL_CERT_FILE": str(ca_file)}, clear=False):
-        assert _default_cacert() == str(ca_file)
+    cacert_environ["SSL_CERT_FILE"] = str(ca_file)
+    assert _default_cacert() == str(ca_file)
 
 
-def test_default_cacert_curl_ca_bundle(tmp_path):
+def test_default_cacert_curl_ca_bundle(tmp_path, cacert_environ):
     ca_file = tmp_path / "ca.pem"
     ca_file.write_text("dummy")
-    env = {"CURL_CA_BUNDLE": str(ca_file)}
-    with patch.dict(os.environ, env, clear=False):
-        # Remove SSL_CERT_FILE to avoid it taking priority
-        os.environ.pop("SSL_CERT_FILE", None)
-        assert _default_cacert() == str(ca_file)
+    cacert_environ["CURL_CA_BUNDLE"] = str(ca_file)
+    # Remove SSL_CERT_FILE to avoid it taking priority.
+    cacert_environ.pop("SSL_CERT_FILE", None)
+    assert _default_cacert() == str(ca_file)
 
 
-def test_default_cacert_env_priority(tmp_path):
+def test_default_cacert_env_priority(tmp_path, cacert_environ):
     ssl_file = tmp_path / "ssl.pem"
     ssl_file.write_text("dummy")
     curl_file = tmp_path / "curl.pem"
     curl_file.write_text("dummy")
-    env = {"SSL_CERT_FILE": str(ssl_file), "CURL_CA_BUNDLE": str(curl_file)}
-    with patch.dict(os.environ, env, clear=False):
-        assert _default_cacert() == str(ssl_file)
+    cacert_environ["SSL_CERT_FILE"] = str(ssl_file)
+    cacert_environ["CURL_CA_BUNDLE"] = str(curl_file)
+    assert _default_cacert() == str(ssl_file)
 
 
-def test_default_cacert_env_nonexistent_path_skipped(tmp_path):
-    env = {"SSL_CERT_FILE": "/nonexistent/ca.pem"}
-    with patch.dict(os.environ, env, clear=False):
-        # Should not return the nonexistent path
-        result = _default_cacert()
-        assert result != "/nonexistent/ca.pem"
+def test_default_cacert_env_nonexistent_path_skipped(tmp_path, cacert_environ):
+    cacert_environ["SSL_CERT_FILE"] = "/nonexistent/ca.pem"
+    # Should not return the nonexistent path.
+    result = _default_cacert()
+    assert result != "/nonexistent/ca.pem"
 
 
-def test_default_cacert_falls_back_without_env():
-    env_clear = {"SSL_CERT_FILE": "", "CURL_CA_BUNDLE": "", "REQUESTS_CA_BUNDLE": ""}
-    with patch.dict(os.environ, env_clear, clear=False):
-        result = _default_cacert()
-        # Should return either the system CA or certifi
-        assert os.path.exists(result)
+def test_default_cacert_falls_back_without_env(cacert_environ):
+    for key in ("SSL_CERT_FILE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE"):
+        cacert_environ[key] = ""
+    result = _default_cacert()
+    # Should return either the system CA or certifi.
+    assert os.path.exists(result)
 
 
 def test_error_falls_back_to_the_code_text_when_the_buffer_is_empty():

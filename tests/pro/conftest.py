@@ -25,17 +25,17 @@ ENVIRONMENT_VARIABLES = {
 def clean_environ():
     """Keeps os.environ clean for every test without having to mock os.environ"""
     original_environ = os.environ.copy()
-    os.environ.clear()
-    os.environ.update(
-        {
-            k: v
-            for k, v in original_environ.items()
-            if k not in ENVIRONMENT_VARIABLES and k.lower() not in ENVIRONMENT_VARIABLES
-        }
-    )
+    # Background servers can read the native environment concurrently. Avoid
+    # clearing and rebuilding unrelated variables during setup and teardown.
+    for key in original_environ:
+        if key.upper() in ENVIRONMENT_VARIABLES:
+            os.environ.pop(key, None)
     yield
-    os.environ.clear()
-    os.environ.update(original_environ)
+    for key in os.environ.keys() - original_environ.keys():
+        os.environ.pop(key)
+    for key, value in original_environ.items():
+        if os.environ.get(key) != value:
+            os.environ[key] = value
 
 
 class Server(uvicorn.Server):
